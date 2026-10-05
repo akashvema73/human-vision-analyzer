@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Human Vision Analyzer</title>
+<style>
+:root{--bg:#eef0f3;--panel:#fff;--ink:#1b1f3b;--mute:#667085;--line:#d5d9e0;--acc:#0f766e;--warn:#c0392b;--amb:#f2a900}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,Segoe UI,sans-serif}
+header{background:var(--ink);color:#fff;padding:14px 28px;display:flex;justify-content:space-between;align-items:center;border-bottom:5px solid var(--acc)}
+h1{margin:0;font-size:24px;letter-spacing:.3px}header small{opacity:.8}
+main{max-width:1400px;margin:0 auto;padding:18px;display:grid;gap:16px;grid-template-columns:2fr 1fr}
+@media(max-width:960px){main{grid-template-columns:1fr}}
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px}
+h2{margin:0 0 10px;font-size:17px}.wide{grid-column:1/-1}
+.feed{width:100%;aspect-ratio:16/9;background:#d5d9e0;border-radius:6px;object-fit:contain;display:block}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+button,input{font:inherit}button{padding:8px 14px;border:0;border-radius:5px;background:var(--acc);color:#fff;font-weight:600;cursor:pointer}
+button.alt{background:#fff;color:var(--ink);border:1px solid var(--ink)}button.red{background:var(--warn)}
+input[type=text]{padding:8px;border:1px solid var(--line);border-radius:5px;width:90px}
+button:focus-visible,input:focus-visible{outline:3px solid var(--amb)}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}.kpi{border-left:5px solid var(--acc);padding:2px 10px}
+.kpi b{display:block;font-size:32px;line-height:1.1}.kpi span{color:var(--mute);font-size:13px}.kpi.w{border-color:var(--warn)}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{color:var(--mute)}td img{height:40px;border-radius:4px;display:block}
+.tag{border-radius:3px;padding:1px 7px;font-size:12px;color:#fff;background:var(--acc)}.tag.a{background:var(--warn)}.tag.g{background:#98a2b3}
+.scroll{overflow-x:auto;max-height:420px;overflow-y:auto}.live div{padding:4px 0;border-bottom:1px dashed var(--line)}
+#st{color:var(--mute);font-size:13px;margin-top:6px}.note{color:var(--mute);font-size:12px;margin-top:8px}
+</style></head><body>
+<header><h1>Human Vision Analyzer</h1><small id="hs">idle</small></header>
+<main>
+<section>
+  <h2>Live camera</h2>
+  <img class="feed" src="/video_feed" alt="Live annotated camera feed">
+  <div class="row">
+    <label>Camera <input type="text" id="cam" value="0"></label>
+    <button onclick="start()">Start camera</button><button class="alt" onclick="stop()">Stop</button>
+    <label><input type="checkbox" id="sk" checked onchange="set()"> Skeleton</label>
+    <label><input type="checkbox" id="mi" checked onchange="set()"> Mirror</label>
+    <label><input type="checkbox" id="hd" checked onchange="set()"> Hands</label>
+    <label><input type="checkbox" id="sh" checked onchange="set()"> Body shape</label>
+    <label>View <select id="vw" onchange="set()"><option value="normal">Camera</option><option value="silhouette">Silhouette only</option></select></label>
+    <button class="alt" onclick="location='/api/snapshot'">Save photo</button>
+  </div>
+  <div id="st"></div>
+  <div class="note" id="feat" style="color:#c0392b"></div>
+  <div class="note">Sab kuch tumhare laptop par local chalta hai. Sirf apne aur sahmati wale logon par use karo.</div>
+</section>
+<section>
+  <h2>Summary</h2>
+  <div class="kpis">
+    <div class="kpi"><b id="k1">0</b><span>People in frame now</span></div>
+    <div class="kpi"><b id="k2">0</b><span>Total people seen</span></div>
+    <div class="kpi"><b id="k3">0s</b><span>Avg. time in frame</span></div>
+    <div class="kpi w"><b id="k4">0</b><span>Alerts (lying / hand raised)</span></div>
+  </div>
+  <h2 style="margin-top:16px">Right now (hands + body shape)</h2>
+  <div class="live" id="live"><span class="note">Koi nahi dikh raha</span></div>
+</section>
+<section class="wide">
+  <h2>People records</h2>
+  <div class="row" style="margin:0 0 10px"><button class="alt" onclick="location='/api/export.csv'">Download CSV</button>
+  <button class="red" onclick="resetAll()">Clear data</button></div>
+  <div class="scroll"><table><thead><tr><th>ID</th><th>Photo</th><th>Posture</th><th>Gesture</th><th>Hands</th><th>Silhouette</th><th>Shoulder / Torso (px)</th><th>Face</th><th>Time in frame</th><th>First seen</th><th>Last seen</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table></div>
+</section>
+<section class="wide">
+  <h2>Event log</h2>
+  <div class="scroll" style="max-height:260px"><table><thead><tr><th>Time</th><th>Event</th><th>Detail</th></tr></thead><tbody id="ev"></tbody></table></div>
+</section>
+</main>
+<script>
+const $=i=>document.getElementById(i);
+async function start(){const f=new FormData();f.append("camera",$("cam").value||"0");await fetch("/api/start",{method:"POST",body:f});}
+async function stop(){await fetch("/api/stop",{method:"POST"});}
+async function set(){const f=new FormData();f.append("skeleton",$("sk").checked);f.append("mirror",$("mi").checked);f.append("hands",$("hd").checked);f.append("shape",$("sh").checked);f.append("view",$("vw").value);await fetch("/api/settings",{method:"POST",body:f});}
+async function resetAll(){if(confirm("Saara data delete karna hai?")){await fetch("/api/reset",{method:"POST"});tick();}}
+async function tick(){
+  const s=await (await fetch("/api/stats")).json();
+  $("k1").textContent=s.present;$("k2").textContent=s.total;$("k3").textContent=s.avg_dwell+"s";$("k4").textContent=s.alerts;
+  $("feat").textContent=s.features.note;$("hs").textContent=s.status+(s.running?` | ${s.fps} AI FPS`:"");$("st").textContent="Status: "+s.status;
+  $("live").innerHTML=s.live.length?s.live.map(p=>{const m=p.shape;return `<div><b>#${p.id}</b> ${p.posture}${p.gesture!="-"?" | "+p.gesture:""} | ${p.dwell}s<br><small>Hands: ${p.hands}<br>Shoulder ${m.shoulder??"-"}px | Torso ${m.torso??"-"}px | Arm L/R ${m.left_arm??"-"}/${m.right_arm??"-"}px | Hands gap ${m.hands_gap??"-"}px<br>Silhouette: ${m.silhouette}${m.ratio?" (shoulder/hip "+m.ratio+")":""}${m.fill!=null?" | fill "+m.fill+"%":""}</small></div>`}).join(""):'<span class="note">Koi nahi dikh raha</span>';
+  const p=await (await fetch("/api/people")).json();
+  $("rows").innerHTML=p.map(r=>`<tr><td>${r.id}</td><td>${r.snapshot?`<img src="/media/${r.snapshot}" alt="">`:""}</td><td>${r.posture}</td><td>${r.gesture}</td><td>${r.hands}</td><td>${r.silhouette}</td><td>${r.shoulder??"-"} / ${r.torso??"-"}</td><td>${r.face?"Yes":"No"}</td><td>${r.dwell}s</td><td>${r.first_seen}</td><td>${r.last_seen}</td><td><span class="tag ${r.present?"":"g"}">${r.present?"Present":"Left"}</span></td></tr>`).join("");
+  const e=await (await fetch("/api/events")).json();
+  $("ev").innerHTML=e.map(r=>`<tr><td>${r.ts}</td><td><span class="tag ${["ENTER","EXIT"].includes(r.type)?"":"a"}">${r.type}</span></td><td>${r.detail}</td></tr>`).join("");
+}
+tick();setInterval(tick,2000);
+</script></body></html>
